@@ -85,9 +85,10 @@ async function processGameEnd(state, channel) {
         const knowersMentions = state.knowers.map(id => `<@${id}>`).join(', ');
         
         await channel.send(
-            `The imposter game is over! It took **${timeStr}** to complete the game!\n` +
-            `Category was **${state.category}**, with **${state.word}** as the word!\n\n` +
-            `It was <@${state.guesser}> (Imposter) v.s. ${knowersMentions} (Knowers)`
+            `🎭 **The Imposter Game has concluded!**\n` +
+            `⏱️ It took **${timeStr}** to sniff out the truth (or get fooled)!\n` +
+            `📂 The category was **${state.category}** and the secret word was **${state.word}**.\n\n` +
+            `**The Lineup:**\n😈 <@${state.guesser}> (Imposter) vs 🧠 ${knowersMentions} (Knowers)`
         );
     }
     
@@ -99,7 +100,7 @@ async function startGame(voiceChannelId, channel) {
     if (!state || state.stage !== 'setup') return;
 
     if (state.gameType === 'imposter' && state.players.size < 3) {
-        await channel.send("❌ **Insufficient players!** Imposter requires at least 3 players. Game setup aborted.");
+        await channel.send("🛑 **Not enough players!** Imposter requires at least 3 players to be fun. Gather your friends in the voice channel and try again! Game setup aborted.");
         cleanupGame(voiceChannelId);
         return;
     }
@@ -138,9 +139,9 @@ async function startGame(voiceChannelId, channel) {
             try {
                 const user = await channel.client.users.fetch(playerId);
                 if (playerId === state.guesser) {
-                    await user.send(`🤫 **You are the Imposter!**\nThe category is: **${state.category}**\n*(You must try to guess what the exact word is!)*`);
+                    await user.send(`🤫 **Shhh... YOU ARE THE IMPOSTER!** 🔪\n\n📂 **Category:** ${state.category}\n\n*Blend in, act natural, and try to figure out the exact word before they catch you!*`);
                 } else {
-                    await user.send(`🧠 **You are a Knower!**\nThe category is: **${state.category}**\nThe word is: **${state.word}**`);
+                    await user.send(`🧠 **You are in the know!** 🕵️‍♂️\n\n📂 **Category:** ${state.category}\n🔑 **The Word:** ${state.word}\n\n*Find the Imposter who doesn't know the word, but don't be too obvious or they will guess it!*`);
                 }
             } catch (err) {
                 log_error(`Failed to DM player ${playerId} during Imposter game start:`, err);
@@ -160,7 +161,7 @@ async function startGame(voiceChannelId, channel) {
         : 'nobody';
 
     const msg = await channel.send({
-        content: `Game **${state.gameType}** started with players: ${description}`,
+        content: `🚀 **The game of ${state.gameType.toUpperCase()} has officially begun!**\n👥 **Players:** ${description}\n\n*Check your DMs for your secret roles. Good luck!*`,
         components: [row]
     });
     state.endMessage = msg;
@@ -188,7 +189,7 @@ async function startSetup(interaction, voiceChannel, gameType, categoryPreferenc
     activeGames.set(voiceChannel.id, state);
 
     const joinMsg = await channel.send(
-        'All players must have bot direct messages on for the game to function! And players must be in the call.\n\nPlayers: none'
+        '⚠️ **ATTENTION:** All players *must* have their DMs open to the bot to play!\n\n👇 **React with 👍 below to join the game!**\n\n👥 **Current Players:** *Waiting for players...*'
     );
     state.joinMessage = joinMsg;
     await joinMsg.react('👍');
@@ -208,15 +209,15 @@ async function startSetup(interaction, voiceChannel, gameType, categoryPreferenc
 
             if (state.players.has(user.id)) return; 
 
-            await user.send('You have joined the game!');
+            await user.send('🎉 **You are in!** Get ready to play...');
             state.players.add(user.id);
             
             const names = [...state.players].map(id => `<@${id}>`).join(', ');
             await joinMsg.edit(
-                `All players must have bot direct messages on for the game to function! And players must be in the call.\n\nPlayers: ${names}`
+                `⚠️ **ATTENTION:** All players *must* have their DMs open to the bot to play!\n\n👇 **React with 👍 below to join the game!**\n\n👥 **Current Players:**\n${names}`
             );
         } catch (err) {
-            await channel.send(`<@${user.id}> please enable DMs for the bot; game setup aborted.`);
+            await channel.send(`🚫 **Uh oh!** <@${user.id}> has their DMs closed! Please right-click the server -> Privacy Settings -> allow Direct Messages so I can send you your secret role. \n\n**Game setup aborted.**`);
             cleanupGame(voiceChannel.id);
         }
     });
@@ -228,11 +229,11 @@ async function startSetup(interaction, voiceChannel, gameType, categoryPreferenc
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('start_game')
-            .setLabel('Click to start')
+            .setLabel('Click to FORCE START')
             .setStyle(ButtonStyle.Primary)
     );
     const startMsg = await channel.send({
-        content: 'Click the button to start early, or wait 45 seconds.',
+        content: '⏳ **Waiting 45 seconds for players to join...** Or click below to force start early!',
         components: [row]
     });
     state.startMessage = startMsg;
@@ -241,9 +242,9 @@ async function startSetup(interaction, voiceChannel, gameType, categoryPreferenc
         startGame(voiceChannel.id, channel).catch(log_error);
     }, 45000);
 
-    let setupContent = `Game **${gameType}** selected. Waiting for players to join...`;
+    let setupContent = `🎮 **${gameType.toUpperCase()}** selected! Let's get this party started.`;
     if (categoryPreference && categoryPreference !== 'random') {
-        setupContent = `Game **${gameType}** selected with category **${categoryPreference}**. Waiting for players...`;
+        setupContent = `🎲 **${gameType.toUpperCase()}** selected! Category locked in: **${categoryPreference}**. Let's go!`;
     }
 
     await interaction.update({
@@ -265,13 +266,13 @@ async function handleGameCommand(ctx) {
     const voiceChannel = member.voice ? member.voice.channel : null;
     if (!voiceChannel) {
         return sendReply(ctx, {
-            content: 'You must be in a voice channel to start a game.',
+            content: '🎧 **Whoops!** You need to hop into a Voice Channel first.',
             ephemeral: ctx.reply ? true : false
         });
     }
     if (activeGames.has(voiceChannel.id)) {
         return sendReply(ctx, {
-            content: 'A game is already active in your voice channel.',
+            content: '🚨 **Hold your horses!** There is already a game running in your Voice Channel.',
             ephemeral: ctx.reply ? true : false
         });
     }
@@ -288,7 +289,7 @@ async function handleGameCommand(ctx) {
     );
 
     await sendReply(ctx, {
-        content: 'Select a game to play:',
+        content: '🕹️ **What are we playing today?** Choose your poison:',
         components: [row],
         ephemeral: ctx.reply ? true : false
     });
@@ -298,7 +299,7 @@ async function handleGameCommand(ctx) {
 async function handleCategoriesCommand(ctx) {
     const categories = Object.keys(imposterDictionary).map(cat => `• **${cat}**`).join('\n');
     await sendReply(ctx, {
-        content: `**Available Imposter Categories:**\n${categories}`,
+        content: `📚 **Here are all the Imposter categories you can choose from:**\n\n${categories}\n\n*(Or just pick Random and let fate decide!)*`,
         ephemeral: ctx.reply ? true : false
     });
 }

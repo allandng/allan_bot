@@ -11,7 +11,8 @@ const client = new Client({
         IntentsBitField.Flags.GuildMembers,
         IntentsBitField.Flags.GuildMessages,
         IntentsBitField.Flags.MessageContent,
-        IntentsBitField.Flags.GuildMessageReactions // Added this to read reactions
+        IntentsBitField.Flags.GuildMessageReactions,
+        IntentsBitField.Flags.GuildVoiceStates // Add this line so the bot can "see" voice channels!
     ]
 });
 
