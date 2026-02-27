@@ -1,5 +1,9 @@
 require('dotenv').config();
 const { Client, IntentsBitField } = require('discord.js');
+const { createRoleSelectMenu, handleRoleSelect } = require('./role-select');
+const { setupWelcomeMessage } = require('./welcome-message');
+const { setupGame } = require('./game');
+const { log_error, log_warning, log_info } = require('./logger');
 
 const client = new Client({
     intents: [
@@ -7,71 +11,46 @@ const client = new Client({
         IntentsBitField.Flags.GuildMembers,
         IntentsBitField.Flags.GuildMessages,
         IntentsBitField.Flags.MessageContent,
+        IntentsBitField.Flags.GuildMessageReactions // Added this to read reactions
     ]
 });
 
-//log bot online
-client.on('ready', (c) => {
-    console.log(`✅ ${c.user.tag} is online.`);
-});
+// Setup module handlers OUTSIDE the ready event so their listeners attach properly
+setupWelcomeMessage(client);
+setupGame(client);
 
-// Welcome embed with GIFs
-const welcomeGifs = [
-    'https://media1.tenor.com/m/xsICn9T81LcAAAAC/roy-leops.gif',
-    'https://pa1.aminoapps.com/6350/6635ab934586f5cc9cb2756058f6170b583aea89_hq.gif',
-    'https://www.cbc.ca/kidsnews/images/Aura_Farming_Kid.gif',
-    'https://media4.giphy.com/media/v1.Y2lkPTZjMDliOTUyMG1hOHo0cnFmNHdoMjMwaWg0NzJvZGg3Mks3NGN4dmtucXB5YTJybCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/g88xUM1rTwjfLhoRYP/200.gif',
-    'https://media0.giphy.com/media/v1.Y2lkPTZjMDliOTUyejBtcW8xOHNhMmgwbjlxbnVybXl3YXJ5ajdoOHZ0YXU0N2hzbzU5NCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/GPFdOplLs2Mw2MfgTs/200.gif',
-    'https://i.pinimg.com/originals/a1/9f/09/a19f09386c8bf4a5ba48d07a7b4171f2.gif',
-    'https://media4.giphy.com/media/v1.Y2lkPTZjMDliOTUyYWU2Zzd5bnNqMWFxYWJvYmh2NXBvNWVvMHNyczZienBodXRvNXc1bCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/WOwiryOPA0G6jhKqB0/200w.gif',
-];
+// Initialize all modules on bot startup
+client.on('ready', async (c) => {
+    log_info(`✅ ${c.user.tag} is online.`);
+    
+    // Ensure role select menu exists in channel (only send if missing)
+    try {
+        const channel = await client.channels.fetch('1448580230741495818');
+        if (!channel) {
+            log_warning('Role select channel not found!');
+            return;
+        }
 
-client.on('guildMemberAdd', async (member) => {
-    console.log(`🎉 Welcome ${member.user.tag}!`);
-    
-    const randomGif = welcomeGifs[Math.floor(Math.random() * welcomeGifs.length)];
-    
-    const channel = member.guild.channels.cache.get('1448509552541831230');
-    if (channel) {
-        const welcomeEmbed = {
-            color: 0xFFB6C1,
-            title: `🍬 Welcome to Candy SMP, ${member.displayName}! 🍬`,
-            description: `You're our **#${member.guild.memberCount}** member!`,
-            thumbnail: {
-                url: member.user.displayAvatarURL({ dynamic: true, size: 256 })
-            },
-            fields: [
-                {
-                    name: '📜 Starting Advice',
-                    value: '**1.** Be nice!\n**2.** Invite friends! (preferably 1 connection away)\n**3.** Use the server modpack\n**4.** Put your MC name in #mc-names to get whitelisted!\n**5.** Get a role in #Important\n**6.** If you are lagging (due to connections) → use a VPN',
-                    inline: false
-                },
-                {
-                    name: '📦 Modpack Downloads',
-                    value: '[Modrinth App](https://modrinth.com/app)\n[Barebones MP with Voice Chat](https://modrinth.com/modpack/barebonesmp-voicechat)',
-                    inline: false
-                },
-                {
-                    name: '🔗 Server IP',
-                    value: '```51.79.37.43:25570```',
-                    inline: false
-                }
-            ],
-            image: {
-                url: randomGif
-            },
-            footer: {
-                text: 'Have fun and enjoy your stay! 😄',
-                icon_url: member.guild.iconURL()
-            },
-            timestamp: new Date()
-        };
-        
-        await channel.send({
-            content: `🎉 **Welcome ${member}!**`,
-            embeds: [welcomeEmbed]
-        });
-        console.log(`✅ Welcome embed sent to ${member.user.tag}`);
+        // look for existing message with select menu
+        const fetched = await channel.messages.fetch({ limit: 100 });
+        const existing = fetched.find(msg =>
+            msg.components.some(row =>
+                row.components.some(comp => comp.customId === 'role_select')
+            )
+        );
+
+        if (existing) {
+            log_info('Role select menu already present, not resending.');
+        } else {
+            const roleMenu = createRoleSelectMenu();
+            await channel.send({
+                content: '🎯 **Select your roles below!**\n\nYou can select multiple roles or deselect to remove them.',
+                components: [roleMenu],
+            });
+            log_info('✅ Role select menu sent to channel!');
+        }
+    } catch (error) {
+        log_error('Error ensuring role select message:', error);
     }
 });
 
@@ -81,7 +60,16 @@ const roles = {
     '1448578412556845238': 'Visitor'
 };
 
+// Handle interactions (select menus and buttons)
 client.on('interactionCreate', async (interaction) => {
+    // Handle role select menu
+    if (interaction.isStringSelectMenu()) {
+        if (interaction.customId === 'role_select') {
+            await handleRoleSelect(interaction);
+        }
+        return;
+    }
+
     if (!interaction.isButton()) return;
     
     try {
@@ -121,7 +109,7 @@ client.on('interactionCreate', async (interaction) => {
         });
         
     } catch (error) {
-        console.error('Role button error:', error);
+        log_error('Role button error:', error);
         if (!interaction.replied) {
             await interaction.reply({ 
                 content: '❌ Something went wrong!', 

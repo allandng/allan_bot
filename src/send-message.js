@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { Client, IntentsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { log_error, log_warning, log_info } = require('./logger');
 
 const client = new Client({
     intents: [
@@ -23,7 +24,7 @@ client.on('ready', async (c) => {
     try {
         const channel = await client.channels.fetch('1448580230741495818');
         if (!channel) {
-            console.log('Channel not found!');
+            log_warning('Channel not found!');
             return;
         }
 
@@ -43,11 +44,11 @@ client.on('ready', async (c) => {
             components: [row],
         });
         
-        console.log('✅ Message sent successfully!');
+        log_info('✅ Message sent successfully!');
         // process.exit(); // Remove this if you want the bot to stay online
         
     } catch (error) {
-        console.log('Error:', error);
+        log_error('Error:', error);
     }
 });
 
