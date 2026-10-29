@@ -3,8 +3,10 @@ const {
     ActionRowBuilder,
     StringSelectMenuBuilder,
     ButtonBuilder,
-    ButtonStyle
+    ButtonStyle,
+    MessageFlags
 } = require('discord.js');
+const config = require('./config');
 const { log_error, log_warning, log_info } = require('./logger');
 
 // Map voiceChannelId -> state object
@@ -47,20 +49,11 @@ const imposterDictionary = {
     ]
 };
 
-async function registerCommands(client) {
-    const commands = [
-        new SlashCommandBuilder().setName('game').setDescription('Start a game'),
-        new SlashCommandBuilder().setName('gameover').setDescription('End current game'),
-        new SlashCommandBuilder().setName('categories').setDescription('View Imposter categories')
-    ].map(cmd => cmd.toJSON());
-
-    try {
-        await client.application.commands.set(commands);
-        log_info('Game commands registered.');
-    } catch (err) {
-        log_error('Failed to register game commands', err);
-    }
-}
+const commands = [
+    new SlashCommandBuilder().setName('game').setDescription('Start a party game in your voice channel'),
+    new SlashCommandBuilder().setName('gameover').setDescription('End current game'),
+    new SlashCommandBuilder().setName('categories').setDescription('View Imposter categories')
+];
 
 async function cleanupGame(voiceChannelId) {
     const state = activeGames.get(voiceChannelId);
@@ -253,12 +246,13 @@ async function startSetup(interaction, voiceChannel, gameType, categoryPreferenc
     });
 }
 
+// Works for both slash-command interactions and legacy $ text commands.
 async function sendReply(target, options) {
-    if (target.reply) {
-        return target.reply(options);
-    } else {
-        return target.channel.send(options);
+    const { ephemeral, ...rest } = options;
+    if (typeof target.isChatInputCommand === 'function') {
+        return target.reply(ephemeral ? { ...rest, flags: MessageFlags.Ephemeral } : rest);
     }
+    return target.channel.send(rest);
 }
 
 async function handleGameCommand(ctx) {
@@ -267,13 +261,13 @@ async function handleGameCommand(ctx) {
     if (!voiceChannel) {
         return sendReply(ctx, {
             content: '🎧 **Whoops!** You need to hop into a Voice Channel first.',
-            ephemeral: ctx.reply ? true : false
+            ephemeral: true
         });
     }
     if (activeGames.has(voiceChannel.id)) {
         return sendReply(ctx, {
             content: '🚨 **Hold your horses!** There is already a game running in your Voice Channel.',
-            ephemeral: ctx.reply ? true : false
+            ephemeral: true
         });
     }
 
@@ -291,7 +285,7 @@ async function handleGameCommand(ctx) {
     await sendReply(ctx, {
         content: '🕹️ **What are we playing today?** Choose your poison:',
         components: [row],
-        ephemeral: ctx.reply ? true : false
+        ephemeral: true
     });
 }
 
@@ -300,7 +294,7 @@ async function handleCategoriesCommand(ctx) {
     const categories = Object.keys(imposterDictionary).map(cat => `• **${cat}**`).join('\n');
     await sendReply(ctx, {
         content: `📚 **Here are all the Imposter categories you can choose from:**\n\n${categories}\n\n*(Or just pick Random and let fate decide!)*`,
-        ephemeral: ctx.reply ? true : false
+        ephemeral: true
     });
 }
 
@@ -310,14 +304,14 @@ async function handleGameOverCommand(ctx) {
     if (!voiceChannel) {
         return sendReply(ctx, {
             content: 'You must be in a voice channel.',
-            ephemeral: ctx.reply ? true : false
+            ephemeral: true
         });
     }
     const state = activeGames.get(voiceChannel.id);
     if (!state || state.stage !== 'active') {
         return sendReply(ctx, {
             content: 'No active game in this voice channel.',
-            ephemeral: ctx.reply ? true : false
+            ephemeral: true
         });
     }
     
@@ -325,114 +319,97 @@ async function handleGameOverCommand(ctx) {
     await sendReply(ctx, { content: 'Game ended.', ephemeral: false });
 }
 
-function setupGame(client) {
-    client.on('ready', () => registerCommands(client));
+const COMPONENT_IDS = new Set(['game_select', 'imposter_category_select', 'start_game', 'end_game']);
 
-    client.on('interactionCreate', async (interaction) => {
-        try {
-            if (interaction.isChatInputCommand()) {
-                if (interaction.commandName === 'game') {
-                    await handleGameCommand(interaction);
-                } else if (interaction.commandName === 'gameover') {
-                    await handleGameOverCommand(interaction);
-                } else if (interaction.commandName === 'categories') {
-                    await handleCategoriesCommand(interaction);
-                }
-            } else if (interaction.isStringSelectMenu() && interaction.customId === 'game_select') {
-                const voiceChannel = interaction.member.voice.channel;
-                if (!voiceChannel) {
-                    return interaction.reply({
-                        content: 'You must be in a voice channel.',
-                        ephemeral: true
-                    });
-                }
+async function onCommand(interaction) {
+    if (interaction.commandName === 'game') return handleGameCommand(interaction);
+    if (interaction.commandName === 'gameover') return handleGameOverCommand(interaction);
+    if (interaction.commandName === 'categories') return handleCategoriesCommand(interaction);
+}
 
-                const gameType = interaction.values[0];
-
-                // If Imposter, switch the dropdown menu to categories
-                if (gameType === 'imposter') {
-                    const categoryOptions = [
-                        { label: '🎲 Random', value: 'random', description: 'Pick a random category' }
-                    ];
-                    
-                    Object.keys(imposterDictionary).forEach(cat => {
-                        categoryOptions.push({ label: cat, value: cat });
-                    });
-
-                    const row = new ActionRowBuilder().addComponents(
-                        new StringSelectMenuBuilder()
-                            .setCustomId('imposter_category_select')
-                            .setPlaceholder('Choose a category')
-                            .addOptions(categoryOptions)
-                    );
-
-                    await interaction.update({
-                        content: 'Select a category for Imposter:',
-                        components: [row]
-                    });
-                } else {
-                    // Start normally for other games
-                    await startSetup(interaction, voiceChannel, gameType);
-                }
-
-            } else if (interaction.isStringSelectMenu() && interaction.customId === 'imposter_category_select') {
-                // Handling the second dropdown menu for Imposter categories
-                const voiceChannel = interaction.member.voice.channel;
-                if (!voiceChannel) {
-                    return interaction.reply({ content: 'You must be in a voice channel.', ephemeral: true });
-                }
-                
-                const categoryPreference = interaction.values[0];
-                await startSetup(interaction, voiceChannel, 'imposter', categoryPreference);
-
-            } else if (interaction.isButton()) {
-                const voiceChannel = interaction.member.voice.channel;
-                if (!voiceChannel) {
-                    return interaction.reply({
-                        content: 'You must be in a voice channel.',
-                        ephemeral: true
-                    });
-                }
-                const state = activeGames.get(voiceChannel.id);
-
-                if (interaction.customId === 'start_game') {
-                    if (state && state.stage === 'setup') {
-                        await startGame(voiceChannel.id, interaction.channel);
-                        if (activeGames.has(voiceChannel.id)) {
-                            await interaction.update({ content: 'Game starting...', components: [] }).catch(()=>{});
-                        }
-                    } else {
-                        await interaction.reply({ content: 'No game to start.', ephemeral: true });
-                    }
-                } else if (interaction.customId === 'end_game') {
-                    if (state && state.stage === 'active') {
-                        await processGameEnd(state, interaction.channel);
-                        await interaction.update({ content: 'Game ended.', components: [] }).catch(()=>{});
-                    } else {
-                        await interaction.reply({ content: 'No active game to end.', ephemeral: true });
-                    }
-                }
-            }
-        } catch (err) {
-            log_error('Error handling game interaction:', err);
+async function onComponent(interaction) {
+    try {
+        const voiceChannel = interaction.member.voice.channel;
+        if (!voiceChannel) {
+            return interaction.reply({ content: 'You must be in a voice channel.', flags: MessageFlags.Ephemeral });
         }
-    });
 
+        if (interaction.isStringSelectMenu() && interaction.customId === 'game_select') {
+            const gameType = interaction.values[0];
+
+            // If Imposter, switch the dropdown menu to categories
+            if (gameType === 'imposter') {
+                const categoryOptions = [
+                    { label: '🎲 Random', value: 'random', description: 'Pick a random category' }
+                ];
+                Object.keys(imposterDictionary).forEach(cat => {
+                    categoryOptions.push({ label: cat, value: cat });
+                });
+
+                const row = new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId('imposter_category_select')
+                        .setPlaceholder('Choose a category')
+                        .addOptions(categoryOptions)
+                );
+                return interaction.update({ content: 'Select a category for Imposter:', components: [row] });
+            }
+            return startSetup(interaction, voiceChannel, gameType);
+        }
+
+        if (interaction.isStringSelectMenu() && interaction.customId === 'imposter_category_select') {
+            return startSetup(interaction, voiceChannel, 'imposter', interaction.values[0]);
+        }
+
+        const state = activeGames.get(voiceChannel.id);
+        if (interaction.customId === 'start_game') {
+            if (state && state.stage === 'setup') {
+                await startGame(voiceChannel.id, interaction.channel);
+                if (activeGames.has(voiceChannel.id)) {
+                    await interaction.update({ content: 'Game starting...', components: [] }).catch(() => {});
+                }
+            } else {
+                await interaction.reply({ content: 'No game to start.', flags: MessageFlags.Ephemeral });
+            }
+        } else if (interaction.customId === 'end_game') {
+            if (state && state.stage === 'active') {
+                await processGameEnd(state, interaction.channel);
+                await interaction.update({ content: 'Game ended.', components: [] }).catch(() => {});
+            } else {
+                await interaction.reply({ content: 'No active game to end.', flags: MessageFlags.Ephemeral });
+            }
+        }
+    } catch (err) {
+        log_error('Error handling game interaction:', err);
+    }
+}
+
+function setup(client) {
+    // Legacy $ text commands in the game channel.
     client.on('messageCreate', async (message) => {
         if (message.author.bot) return;
-        if (message.channel.id !== '1476762244380622878') return;
+        if (message.channel.id !== config.channels.gameText) return;
 
         const content = message.content.trim();
-        if (content.startsWith('$gameover')) {
-            await handleGameOverCommand(message);
-        } else if (content.startsWith('$game')) {
-            await handleGameCommand(message);
-        } else if (content.startsWith('$categories')) {
-            await handleCategoriesCommand(message);
+        try {
+            if (content.startsWith('$gameover')) {
+                await handleGameOverCommand(message);
+            } else if (content.startsWith('$game')) {
+                await handleGameCommand(message);
+            } else if (content.startsWith('$categories')) {
+                await handleCategoriesCommand(message);
+            }
+        } catch (err) {
+            log_error('Error handling $ game command:', err);
         }
     });
 }
 
 module.exports = {
-    setupGame
+    name: 'game',
+    commands,
+    onCommand,
+    onComponent,
+    componentIds: COMPONENT_IDS,
+    setup
 };
