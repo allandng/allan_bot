@@ -1,4 +1,4 @@
-const { ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
+const { ActionRowBuilder, StringSelectMenuBuilder, MessageFlags } = require('discord.js');
 const { log_error, log_warning, log_info } = require('./logger');
 
 const ROLES = {
@@ -83,7 +83,7 @@ async function handleRoleSelect(interaction) {
 
         await interaction.reply({
             content: confirmationMessage,
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
 
     } catch (error) {
@@ -91,7 +91,7 @@ async function handleRoleSelect(interaction) {
         if (!interaction.replied) {
             await interaction.reply({
                 content: '❌ Something went wrong while updating roles!',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
         }
     }

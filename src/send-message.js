@@ -1,4 +1,5 @@
-require('dotenv').config();
+// One-off script: posts the Candy / Visitor role buttons. Run with `npm run send-roles`.
+const config = require('./config');
 const { Client, IntentsBitField, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const { log_error, log_warning, log_info } = require('./logger');
 
@@ -20,9 +21,9 @@ const roles = [
     },
 ];
 
-client.on('ready', async (c) => {
+client.once('clientReady', async (c) => {
     try {
-        const channel = await client.channels.fetch('1448580230741495818');
+        const channel = await client.channels.fetch(config.channels.roleSelect);
         if (!channel) {
             log_warning('Channel not found!');
             return;
@@ -52,4 +53,4 @@ client.on('ready', async (c) => {
     }
 });
 
-client.login(process.env.TOKEN);
+client.login(config.token);

@@ -1,3 +1,4 @@
+const config = require('./config');
 const { log_error, log_info } = require('./logger');
 
 // Welcome embed with GIFs
@@ -21,7 +22,7 @@ function setupWelcomeMessage(client) {
         
         const randomGif = welcomeGifs[Math.floor(Math.random() * welcomeGifs.length)];
         
-        const channel = member.guild.channels.cache.get('1448509552541831230');
+        const channel = member.guild.channels.cache.get(config.channels.welcome);
         if (channel) {
             const welcomeEmbed = {
                 color: 0xFFB6C1,
@@ -52,11 +53,15 @@ function setupWelcomeMessage(client) {
                 timestamp: new Date()
             };
             
-            await channel.send({
-                content: `🎉 **Welcome ${member}!**`,
-                embeds: [welcomeEmbed]
-            });
-            log_info(`✅ Welcome embed sent to ${member.user.tag}`);
+            try {
+                await channel.send({
+                    content: `🎉 **Welcome ${member}!**`,
+                    embeds: [welcomeEmbed]
+                });
+                log_info(`✅ Welcome embed sent to ${member.user.tag}`);
+            } catch (err) {
+                log_error('Failed to send welcome message', err);
+            }
         }
     });
 }
